@@ -8,21 +8,19 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 
-# --- 1. DATABASE SETUP ---
-# REPLACE THE STRING BELOW with your actual Supabase URL
-# DATABASE_URL = "postgresql://postgres:ba9vK&SMpNK9t8?@db.dhxwmgecoypqylbnwmjm.supabase.co:5432/postgres" 
-DATABASE_URL = "sqlite:///./test.db"
+# Database Configuration
+# Uses Render's DATABASE_URL in production, falls back to local SQLite for development
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")
 
-# Fail-safe for local testing if you forget to set the URL (uses a local file)
-# if "YOUR_SUPABASE_URL" in DATABASE_URL:
-#     print("WARNING: Using local SQLite DB. Update DATABASE_URL for production!")
-#     DATABASE_URL = "sqlite:///./test.db"
+# Fix for SQLAlchemy parsing of Render's postgres:// URI
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- 2. MODELS ---
+# --- Domain Models ---
 class Employee(Base):
     __tablename__ = "employees"
     id = Column(Integer, primary_key=True, index=True)
@@ -31,7 +29,6 @@ class Employee(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     department = Column(String, nullable=False)
     
-    # Relationship for bonus feature
     attendance_records = relationship("Attendance", back_populates="employee", cascade="all, delete-orphan")
 
 class Attendance(Base):
@@ -39,17 +36,16 @@ class Attendance(Base):
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     date = Column(Date, nullable=False)
-    status = Column(String, nullable=False) # 'Present' or 'Absent'
+    status = Column(String, nullable=False) 
 
     employee = relationship("Employee", back_populates="attendance_records")
     
-    # Constraint: One attendance record per employee per day
+    # Ensure only one record per employee per day
     __table_args__ = (UniqueConstraint('employee_id', 'date', name='_employee_date_uc'),)
 
-# Create Tables
 Base.metadata.create_all(bind=engine)
 
-# --- 3. PYDANTIC SCHEMAS (Validation) ---
+# --- Schemas ---
 class EmployeeCreate(BaseModel):
     employee_id: str
     full_name: str
@@ -57,24 +53,23 @@ class EmployeeCreate(BaseModel):
     department: str
 
 class AttendanceCreate(BaseModel):
-    employee_id: int # The internal DB ID, not the string ID
+    employee_id: int
     date: date
     status: Literal['Present', 'Absent']
 
 class EmployeeResponse(EmployeeCreate):
     id: int
-    total_present: int = 0 # BONUS FEATURE
+    total_present: int = 0
 
     class Config:
         from_attributes = True
 
-# --- 4. API & LOGIC ---
+# --- API Routes ---
 app = FastAPI(title="HRMS Lite API")
 
-# Enable CORS for Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for simplicity in assessment
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -101,7 +96,7 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db)):
 
 @app.get("/employees/", response_model=List[EmployeeResponse])
 def get_employees(db: Session = Depends(get_db)):
-    # BONUS LOGIC: Fetch employees + count of 'Present' days
+    # Aggregation for attendance summary
     results = db.query(
         Employee,
         func.count(Attendance.id).filter(Attendance.status == 'Present').label('present_count')
@@ -125,17 +120,16 @@ def delete_employee(id: int, db: Session = Depends(get_db)):
 
 @app.post("/attendance/", status_code=201)
 def mark_attendance(att: AttendanceCreate, db: Session = Depends(get_db)):
-    # Check if exists
     existing = db.query(Attendance).filter(
         Attendance.employee_id == att.employee_id, 
         Attendance.date == att.date
     ).first()
     
     if existing:
-        existing.status = att.status # Update if exists
+        existing.status = att.status
     else:
         new_att = Attendance(**att.dict())
         db.add(new_att)
     
     db.commit()
-    return {"message": "Attendance marked"}
+    return {"message": "Attendance updated"}
