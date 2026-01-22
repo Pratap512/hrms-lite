@@ -8,7 +8,8 @@ It was built as a full-stack assessment to demonstrate capability in **FastAPI**
 ### 🌟 Key Features
 * **Employee Management:** Add, view, and delete employee records with unique validation (Email/ID).
 * **Attendance Tracking:** Mark employees as 'Present' or 'Absent' for the current date.
-* **Real-time Analytics (Bonus):** Automatically calculates and displays the "Total Present Days" for each employee on the dashboard.
+* **Detailed History:** Click on any employee's status to open a popup showing their full attendance log history.
+* **Real-time Analytics:** Automatically calculates and displays the "Total Present Days" for each employee on the dashboard.
 * **Responsive UI:** Clean, professional interface built with Tailwind CSS.
 
 ---

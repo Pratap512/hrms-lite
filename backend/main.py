@@ -5,14 +5,11 @@ from typing import List, Optional, Literal
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, UniqueConstraint, func
+from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 
-# Database Configuration
-# Uses Render's DATABASE_URL in production, falls back to local SQLite for development
+# --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")
-
-# Fix for SQLAlchemy parsing of Render's postgres:// URI
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -20,7 +17,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Domain Models ---
+# --- MODELS ---
 class Employee(Base):
     __tablename__ = "employees"
     id = Column(Integer, primary_key=True, index=True)
@@ -39,13 +36,18 @@ class Attendance(Base):
     status = Column(String, nullable=False) 
 
     employee = relationship("Employee", back_populates="attendance_records")
-    
-    # Ensure only one record per employee per day
     __table_args__ = (UniqueConstraint('employee_id', 'date', name='_employee_date_uc'),)
 
 Base.metadata.create_all(bind=engine)
 
-# --- Schemas ---
+# --- SCHEMAS ---
+class AttendanceOut(BaseModel):
+    date: date
+    status: Literal['Present', 'Absent']
+    
+    class Config:
+        from_attributes = True
+
 class EmployeeCreate(BaseModel):
     employee_id: str
     full_name: str
@@ -59,12 +61,13 @@ class AttendanceCreate(BaseModel):
 
 class EmployeeResponse(EmployeeCreate):
     id: int
-    total_present: int = 0
+    attendance_records: List[AttendanceOut] = [] # The List
+    total_present: int = 0                       # The Count
 
     class Config:
         from_attributes = True
 
-# --- API Routes ---
+# --- API ---
 app = FastAPI(title="HRMS Lite API")
 
 app.add_middleware(
@@ -86,8 +89,7 @@ def get_db():
 def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db)):
     db_emp = db.query(Employee).filter((Employee.email == emp.email) | (Employee.employee_id == emp.employee_id)).first()
     if db_emp:
-        raise HTTPException(status_code=400, detail="Employee with this Email or ID already exists.")
-    
+        raise HTTPException(status_code=400, detail="Employee exists.")
     new_emp = Employee(**emp.dict())
     db.add(new_emp)
     db.commit()
@@ -96,40 +98,28 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db)):
 
 @app.get("/employees/", response_model=List[EmployeeResponse])
 def get_employees(db: Session = Depends(get_db)):
-    # Aggregation for attendance summary
-    results = db.query(
-        Employee,
-        func.count(Attendance.id).filter(Attendance.status == 'Present').label('present_count')
-    ).outerjoin(Attendance).group_by(Employee.id).all()
-    
-    response = []
-    for emp, count in results:
-        emp_dict = emp.__dict__
-        emp_dict['total_present'] = count if count else 0
-        response.append(emp_dict)
-    return response
+    employees = db.query(Employee).all()
+    # Python logic to calculate count instantly
+    for emp in employees:
+        emp.total_present = sum(1 for a in emp.attendance_records if a.status == 'Present')
+    return employees
 
 @app.delete("/employees/{id}", status_code=204)
 def delete_employee(id: int, db: Session = Depends(get_db)):
     emp = db.query(Employee).filter(Employee.id == id).first()
     if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
+        raise HTTPException(status_code=404, detail="Not found")
     db.delete(emp)
     db.commit()
     return None
 
 @app.post("/attendance/", status_code=201)
 def mark_attendance(att: AttendanceCreate, db: Session = Depends(get_db)):
-    existing = db.query(Attendance).filter(
-        Attendance.employee_id == att.employee_id, 
-        Attendance.date == att.date
-    ).first()
-    
+    existing = db.query(Attendance).filter(Attendance.employee_id == att.employee_id, Attendance.date == att.date).first()
     if existing:
         existing.status = att.status
     else:
         new_att = Attendance(**att.dict())
         db.add(new_att)
-    
     db.commit()
     return {"message": "Attendance updated"}
