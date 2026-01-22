@@ -91,7 +91,7 @@ export default function App() {
               <tr>
                 <th className="p-4 text-gray-600">Employee</th>
                 <th className="p-4 text-gray-600">Contact</th>
-                <th className="p-4 text-center text-gray-600">Total Present (Click Me)</th>
+                <th className="p-4 text-center text-gray-600">Total Present</th>
                 <th className="p-4 text-center text-gray-600">Today's Action</th>
                 <th className="p-4 text-right text-gray-600">Actions</th>
               </tr>
@@ -145,14 +145,15 @@ export default function App() {
                   <tr><th className="p-3 text-left">Date</th><th className="p-3 text-right">Status</th></tr>
                 </thead>
                 <tbody>
-                  {selectedEmp.attendance_records.length === 0 ? (
-                    <tr><td colSpan="2" className="p-4 text-center text-gray-400">No attendance marked yet.</td></tr>
+                  {/* SAFETY FIX: The '|| []' prevents the white screen crash */}
+                  {(selectedEmp.attendance_records || []).length === 0 ? (
+                    <tr><td colSpan="2" className="p-4 text-center text-gray-400 italic">No attendance records found.</td></tr>
                   ) : (
-                    selectedEmp.attendance_records
+                    (selectedEmp.attendance_records || [])
                       .sort((a, b) => new Date(b.date) - new Date(a.date))
                       .map((record, idx) => (
-                      <tr key={idx} className="border-t">
-                        <td className="p-3">{record.date}</td>
+                      <tr key={idx} className="border-t hover:bg-gray-50">
+                        <td className="p-3 text-gray-600">{record.date}</td>
                         <td className={`p-3 text-right font-medium ${record.status === 'Present' ? 'text-green-600' : 'text-red-500'}`}>
                           {record.status}
                         </td>
