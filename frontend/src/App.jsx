@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Trash2, UserPlus, CheckCircle, XCircle, Users } from 'lucide-react';
 
 // SET THIS TO YOUR DEPLOYED BACKEND URL LATER
-const API_BASE = "http://127.0.0.1:5000"; 
+const API_BASE = "https://hrms-backend-kgrz.onrender.com"; 
 
 export default function App() {
   const [employees, setEmployees] = useState([]);
